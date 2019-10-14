@@ -39,6 +39,7 @@ import org.json.simple.parser.ParseException;
 public class CalendarViewCRM extends CalendarView {
 
     Calendar db;
+    Calendar done_db;
     Timer updateTimeThread;
     boolean editable;
 
@@ -52,15 +53,17 @@ public class CalendarViewCRM extends CalendarView {
         }
     };
 
-    public CalendarViewCRM(String name, String filename) {
-        db = new Calendar(name);
+    public CalendarViewCRM(String name, String filename, String filename2) {
+        db = loadFromFile(filename);
+        done_db = loadDoneFromFile(filename2);
         CalendarSource workCalendarSource = new CalendarSource("Work");
+        CalendarSource workCalendarSourceDone = new CalendarSource("Done");
         workCalendarSource.getCalendars().addAll(db);
-        getCalendarSources().setAll(workCalendarSource);
-        loadFromFile(filename);
+        workCalendarSourceDone.getCalendars().addAll(done_db);
+        getCalendarSources().setAll(workCalendarSource, workCalendarSourceDone);
         this.setRequestedTime(LocalTime.now());
         updateTimeThread = new Timer("Calendar: Update Time Thread");
-        updateTimeThread.schedule(timerTask, 0, 10000);
+        updateTimeThread.schedule(timerTask, 0, 1000);
         this.showMonthPage();
     }
 
@@ -71,6 +74,87 @@ public class CalendarViewCRM extends CalendarView {
         calendar.put("Name", "Arsenty P. Gusev");
 
         Map<LocalDate, List<Entry<?>>> results = db.findEntries(
+                LocalDate.of(2010, 1, 1),
+                LocalDate.of(2100, 1, 1),
+                ZoneId.systemDefault()
+        );
+        for (Map.Entry<LocalDate, List<Entry<?>>> pair : results.entrySet()) {
+            for (Entry<?> item : pair.getValue()) {
+                if (item.getTitle().contains("+"))
+                    continue;
+                JSONObject obj = new JSONObject();
+                obj.put("Start date year", item.getStartDate().getYear());
+                obj.put("Start date month", item.getStartDate().getMonthValue());
+                obj.put("Start date day", item.getStartDate().getDayOfMonth());
+                obj.put("Start time hour", item.getStartTime().getHour());
+                obj.put("Start time minute", item.getStartTime().getMinute());
+                obj.put("End date year", item.getEndDate().getYear());
+                obj.put("End date month", item.getEndDate().getMonthValue());
+                obj.put("End date day", item.getEndDate().getDayOfMonth());
+                obj.put("End time hour", item.getEndTime().getHour());
+                obj.put("End time minute", item.getEndTime().getMinute());
+                obj.put("All day", item.isFullDay());
+                obj.put("Title", item.getTitle());
+                obj.put("Place", item.getLocation());
+                list.add(obj);
+            }
+        }
+
+        try ( FileWriter file = new FileWriter(filename)) {
+            file.write(calendar.toJSONString());
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+
+        System.out.print(calendar);
+    }
+
+    public void saveDoneToFile(String filename) {
+        JSONObject calendar = new JSONObject();
+        JSONArray list = new JSONArray();
+        calendar.put("Events", list);
+        calendar.put("Name", "Arsenty P. Gusev");
+
+        Map<LocalDate, List<Entry<?>>> results = db.findEntries(
+                LocalDate.of(2010, 1, 1),
+                LocalDate.of(2100, 1, 1),
+                ZoneId.systemDefault()
+        );
+        for (Map.Entry<LocalDate, List<Entry<?>>> pair : results.entrySet()) {
+            for (Entry<?> item : pair.getValue()) {
+                if (!item.getTitle().contains("+"))
+                    continue;
+                Entry<?> nitem = new Entry(item.getTitle().replace("+", ""),
+                        new Interval(
+                                LocalDate.of(
+                                        item.getStartDate().getYear(),
+                                        item.getStartDate().getMonthValue(),
+                                        item.getStartDate().getDayOfMonth()
+                                ),
+                                LocalTime.of(
+                                        item.getStartTime().getHour(),
+                                        item.getStartTime().getMinute()
+                                ),
+                                LocalDate.of(
+                                        item.getEndDate().getYear(),
+                                        item.getEndDate().getMonthValue(),
+                                        item.getEndDate().getDayOfMonth()
+                                ),
+                                LocalTime.of(
+                                        item.getEndTime().getHour(),
+                                        item.getEndTime().getMinute()
+                                )
+                        )
+                );
+                nitem.setLocation(item.getLocation());
+                nitem.setFullDay(item.isFullDay());
+                Platform.runLater(()->{
+                    done_db.addEntry(nitem);
+                    db.removeEntry(item);
+                });
+            }
+        }
+        results = done_db.findEntries(
                 LocalDate.of(2010, 1, 1),
                 LocalDate.of(2100, 1, 1),
                 ZoneId.systemDefault()
@@ -104,7 +188,9 @@ public class CalendarViewCRM extends CalendarView {
         System.out.print(calendar);
     }
 
-    private void loadFromFile(String filename) {
+    private Calendar loadFromFile(String filename) {
+        Calendar ret = new Calendar("Задачи");
+        ret.setStyle(Calendar.Style.STYLE1);
         JSONParser parser = new JSONParser();
         try ( Reader reader = new FileReader(filename)) {
             JSONObject jsonObject = (JSONObject) parser.parse(reader);
@@ -144,11 +230,62 @@ public class CalendarViewCRM extends CalendarView {
                 );
                 nitem.setFullDay((Boolean) item.get("All day"));
                 nitem.setLocation(place);
-                db.addEntry(nitem);
+                ret.addEntry(nitem);
             }
         } catch (IOException | ParseException e) {
             e.printStackTrace();
         }
+        return ret;
+    }
+    
+    private Calendar loadDoneFromFile(String filename) {
+        Calendar ret = new Calendar("Законченые задачи");
+        ret.setStyle(Calendar.Style.STYLE2);
+        JSONParser parser = new JSONParser();
+        try ( Reader reader = new FileReader(filename)) {
+            JSONObject jsonObject = (JSONObject) parser.parse(reader);
+            JSONArray list = (JSONArray) jsonObject.get("Events");
+            Iterator<JSONObject> iterator = list.iterator();
+            while (iterator.hasNext()) {
+                Long sd_y, sd_m, sd_d, sd_h, sd_mm;
+                Long ed_y, ed_m, ed_d, ed_h, ed_mm;
+                String descr;
+                String place;
+                JSONObject item = iterator.next();
+                sd_y = (Long) item.get("Start date year");
+                sd_m = (Long) item.get("Start date month");
+                sd_d = (Long) item.get("Start date day");
+                sd_h = (Long) item.get("Start time hour");
+                sd_mm = (Long) item.get("Start time minute");
+                ed_y = (Long) item.get("End date year");
+                ed_m = (Long) item.get("End date month");
+                ed_d = (Long) item.get("End date day");
+                ed_h = (Long) item.get("End time hour");
+                ed_mm = (Long) item.get("End time minute");
+                descr = (String) item.get("Title");
+                place = (String) item.get("Place");
+                Entry<?> nitem = new Entry(descr,
+                        new Interval(
+                                LocalDate.of(
+                                        sd_y.intValue(), sd_m.intValue(),
+                                        sd_d.intValue()
+                                ),
+                                LocalTime.of(sd_h.intValue(), sd_mm.intValue()),
+                                LocalDate.of(
+                                        ed_y.intValue(), ed_m.intValue(),
+                                        ed_d.intValue()
+                                ),
+                                LocalTime.of(ed_h.intValue(), ed_mm.intValue())
+                        )
+                );
+                nitem.setFullDay((Boolean) item.get("All day"));
+                nitem.setLocation(place);
+                ret.addEntry(nitem);
+            }
+        } catch (IOException | ParseException e) {
+            e.printStackTrace();
+        }
+        return ret;
     }
 
     private Set<Entry<?>> studies_on_db = new HashSet();
@@ -175,6 +312,27 @@ public class CalendarViewCRM extends CalendarView {
         //super.finalize(); see alip's comment on why this should not be invoked.
     }
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

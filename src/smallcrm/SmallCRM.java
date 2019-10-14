@@ -27,7 +27,7 @@ public class SmallCRM extends Application {
     @Override
     public void start(Stage primaryStage) {
         calendarView = new CalendarViewCRM(
-		"Arsenty P. Gusev", "db.json"
+		"Arsenty P. Gusev", "db.json", "db_done.json"
 	);
         StackPane stackPane = new StackPane();
         stackPane.getChildren().addAll(calendarView); // introPane);
@@ -36,6 +36,7 @@ public class SmallCRM extends Application {
         primaryStage.setOnCloseRequest(new EventHandler<WindowEvent>() {
             @Override
             public void handle(WindowEvent event) {
+                calendarView.saveDoneToFile("db_done.json");
                 calendarView.saveToFile("db.json");
                 Platform.exit();
                 System.exit(0);
@@ -49,9 +50,10 @@ public class SmallCRM extends Application {
         timer.schedule(new TimerTask() {
             @Override
             public void run() {
+                calendarView.saveDoneToFile("db_done.json");
                 calendarView.saveToFile("db.json");
             }
-        }, 0, 10000);
+        }, 0, 300000);
         primaryStage.show();
     }
 
@@ -63,6 +65,10 @@ public class SmallCRM extends Application {
     }
     
 }
+
+
+
+
 
 
 
